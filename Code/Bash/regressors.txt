@@ -1,0 +1,5 @@
+NumRegressors 2
+
+cond001.txt
+cond002.txt
+
