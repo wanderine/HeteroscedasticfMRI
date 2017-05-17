@@ -2033,7 +2033,7 @@ int main(int argc, char **argv)
 
 				if ((analyzedPortion - previousAnalyzedPortion) > 1.0f)
 				{
-					printf("Analyzed %f %% of %i voxels in mask in %f seconds, expected time remaining %f seconds \n",analyzedPortion,numBrainVoxels,(float)(currentTime - startTime),timeLeft);	
+					printf("Analyzed %f %% of %i voxels in mask in %f minues, expected time remaining %f minutes \n",analyzedPortion,numBrainVoxels,(float)(currentTime - startTime)/60.0f,timeLeft/60.0f);	
 					previousAnalyzedPortion = analyzedPortion;		
 				}
 			}
