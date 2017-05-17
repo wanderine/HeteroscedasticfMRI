@@ -89,41 +89,6 @@ int main(int argc, char **argv)
 	double			iota = 1;
 	double			r = 0.5;
 
-	// Analysis 2
-	//double			tauBeta = 10;
-	//double			tauGamma = 10;
-	//double			tauRho = 0.5;
-	//double			iota = 1;
-	//double			r = 0.5;
-
-	// Analysis 3
-	//double			tauBeta = 10;
-	//double			tauGamma = 10;
-	//double			tauRho = 1;
-	//double			iota = 0.5;
-	//double			r = 0.5;
-
-	// Analysis 4
-	//double			tauBeta = 10;
-	//double			tauGamma = 10;
-	//double			tauRho = 0.5;
-	//double			iota = 0.5;
-	//double			r = 0.5;
-
-	// Analysis 5
-	//double			tauBeta = 5;
-	//double			tauGamma = 5;
-	//double			tauRho = 1;
-	//double			iota = 1;
-	//double			r = 0.5;
-
-	// Analysis 6
-	//double			tauBeta = 5;
-	//double			tauGamma = 5;
-	//double			tauRho = 0.5;
-	//double			iota = 1;
-	//double			r = 0.5;
-
 	bool			forceStationarity = true;
 	int				nStepsGamma = 2;
 	int				hessMethodGamma = 0;
@@ -2060,12 +2025,15 @@ int main(int argc, char **argv)
 			}
 
 			#pragma omp critical
-			{
+			{				
+				double currentTime = GetWallTime();
 				analyzedVoxels++;
 				analyzedPortion = (float)analyzedVoxels/(float)numBrainVoxels * 100.0f;
+				float timeLeft = (float)(currentTime - startTime) / analyzedPortion * (100.0f - analyzedPortion);
+
 				if ((analyzedPortion - previousAnalyzedPortion) > 1.0f)
 				{
-					printf("Analyzed %f %% of all voxels in mask \n",analyzedPortion);	
+					printf("Analyzed %f %% of %i voxels in mask in %f seconds, expected time remaining %f seconds \n",analyzedPortion,numBrainVoxels,(float)(currentTime - startTime),timeLeft);	
 					previousAnalyzedPortion = analyzedPortion;		
 				}
 			}
