@@ -83,13 +83,13 @@ int main(int argc, char **argv)
 	double			prcBurnin = (double)BURNIN_ITERATIONS / (double)MCMC_ITERATIONS;
 
 	// Default
-	double			tauBeta = 10;
-	double			tauGamma = 10;
-	double			tauRho = 1;
-	double			iota = 1;
+	double			tauBeta = 10.0;
+	double			tauGamma = 10.0;
+	double			tauRho = 1.0;
+	double			iota = 1.0;
 	double			r = 0.5;
 
-	bool			forceStationarity = true;
+	bool			forceStationarity = false;
 	int				nStepsGamma = 2;
 	int				hessMethodGamma = 0;
 	int 			propDfGamma = 10;
@@ -181,6 +181,9 @@ int main(int argc, char **argv)
         printf(" -regressglobalmean         Include global mean in design matrix (default no) \n\n");
 
         printf(" -arorder                   Order of auto regressive noise model in each voxel (default 4)\n");
+        printf(" -forcestationarity         Force stationary AR process (default false)\n");
+        printf(" -iota                      Iota parameter for prior variance of rho (default 1.0)\n\n");
+
         printf(" -gammaregressors           Text file with regressors for variance (default all regressors, counting from 0) \n");
         printf(" -ontrialbeta               Text file with regressors on trial for beta (default none, counting from 0) \n");
         printf(" -ontrialgamma              Text file with regressors on trial for gamma (default none, counting from 0) \n");
@@ -376,6 +379,35 @@ int main(int argc, char **argv)
             }
             i += 2;
         }
+		else if (strcmp(input,"-forcestationarity") == 0)
+        {
+            forceStationarity = true;
+            i += 1;
+        }
+		else if (strcmp(input,"-iota") == 0)
+        {
+			if ( (i+1) >= argc  )
+			{
+			    printf("Unable to read value after -iota !\n");
+                return EXIT_FAILURE;
+			}
+            
+            iota = (double)strtod(argv[i+1], &p);
+            
+			if (!isspace(*p) && *p != 0)
+		    {
+		        printf("iota parameter must be a double! You provided %s \n",argv[i+1]);
+				return EXIT_FAILURE;
+		    }
+  			else if ( iota <= 0.0 )
+            {
+                printf("iota must be > 0.0 !\n");
+                return EXIT_FAILURE;
+            }
+            i += 2;
+		}
+
+
 		else if (strcmp(input,"-gammaregressors") == 0)
         {
 			if ( (i+1) >= argc  )
