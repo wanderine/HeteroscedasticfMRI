@@ -182,6 +182,7 @@ int main(int argc, char **argv)
 
         printf(" -arorder                   Order of auto regressive noise model in each voxel (default 4)\n");
         printf(" -forcestationarity         Force stationary AR process (default false)\n");
+        printf(" -taurho                    tau rho parameter for prior variance of rho (default 1.0)\n\n");
         printf(" -iota                      Iota parameter for prior variance of rho (default 1.0)\n\n");
 
         printf(" -gammaregressors           Text file with regressors for variance (default all regressors, counting from 0) \n");
@@ -384,6 +385,29 @@ int main(int argc, char **argv)
             forceStationarity = true;
             i += 1;
         }
+		else if (strcmp(input,"-taurho") == 0)
+        {
+			if ( (i+1) >= argc  )
+			{
+			    printf("Unable to read value after -taurho !\n");
+                return EXIT_FAILURE;
+			}
+            
+            tauRho = (double)strtod(argv[i+1], &p);
+            
+			if (!isspace(*p) && *p != 0)
+		    {
+		        printf("tau rho parameter must be a double! You provided %s \n",argv[i+1]);
+				return EXIT_FAILURE;
+		    }
+  			else if ( tauRho <= 0.0 )
+            {
+                printf("tau rho must be > 0.0 !\n");
+                return EXIT_FAILURE;
+            }
+            i += 2;
+		}
+
 		else if (strcmp(input,"-iota") == 0)
         {
 			if ( (i+1) >= argc  )
