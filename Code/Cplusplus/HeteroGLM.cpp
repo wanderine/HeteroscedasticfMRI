@@ -2278,7 +2278,14 @@ int main(int argc, char **argv)
 		std::string temp2 = IrhoString;
 
 	    std::stringstream ss;
-       	ss << "_arcoefficient000";
+		if ((i+1) < 10)
+		{
+        	ss << "_arcoefficient000";
+		}
+		else if ((i+1) < 100)
+		{
+			ss << "_arcoefficient00";
+		}
 		ss << i + 1;
 
 		temp1.append(ss.str());
@@ -2345,6 +2352,10 @@ int main(int argc, char **argv)
 			if ((i+1) < 10)
 			{
     	    	ss << "_fullposterior_arcoefficient000";
+			}
+			else if ((i+1) < 100)
+			{
+    	    	ss << "_fullposterior_arcoefficient00";
 			}
 			ss << i + 1;
 
