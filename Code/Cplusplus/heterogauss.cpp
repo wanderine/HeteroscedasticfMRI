@@ -2112,6 +2112,12 @@ void HeteroGauss::GibbsHIGLM(Eigen::MatrixXd &betaDraws,
 		//------------------------------------------------------------
 
 	    u = y - X*beta; // Residuals
+
+		// Do not care about number of non-stationary draws during burnin
+		if (i == nBurnin)
+		{
+			nonStationaryDraws = 0;
+		}
 		
 		if (ARorder > 0)
 		{
@@ -2132,7 +2138,7 @@ void HeteroGauss::GibbsHIGLM(Eigen::MatrixXd &betaDraws,
 			}		
 
     	    UpdateLinRegVarSel(rho, Irho, utilde, Utilde, muRho, SigmaRho, PrInRho, onTrialRho, true, forceStationarity, nonStationaryDraws, previousRho);
-			previousRho = rho;
+			previousRho = rho;			
 
 			//std::cout << "rho is " << std::endl << rho << std::endl << std::endl;
 			//std::cout << "Irho is " << std::endl << Irho << std::endl << std::endl;
