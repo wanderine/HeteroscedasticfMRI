@@ -1545,7 +1545,9 @@ void HeteroGauss::UpdateLinRegVarSel(Eigen::VectorXd &beta,
                                      Eigen::VectorXd &PrIn, 
                                      Eigen::VectorXd &onTrialIndex, 
                                      bool AR, 
-                                     bool forceStationarity)
+                                     bool forceStationarity,
+									 int &nonStationaryDraws,
+									 Eigen::VectorXd &previousBeta)
 {
 	// Update the indicator vector and the regression coefficient in the linear
 	// regression model with unit noise variance
@@ -1755,7 +1757,7 @@ void HeteroGauss::UpdateLinRegVarSel(Eigen::VectorXd &beta,
 
 		int failedAttempts = 0;
 
-    	while (!stationary && (failedAttempts < 100)) // TODO: faster check of stationarity?
+    	while (!stationary && (failedAttempts < 1000)) // TODO: faster check of stationarity?
 		{
 			//CompanionMat =  [beta_' ; preCompMat ];
 			CompanionMat.row(0) = beta.transpose();
@@ -1799,9 +1801,11 @@ void HeteroGauss::UpdateLinRegVarSel(Eigen::VectorXd &beta,
 			beta = SaveFullVector(draw, I);
 		}
 
-		if (failedAttempts >= 100)
+		if (failedAttempts >= 1000)
 		{
-			beta.setZero(p);
+			//beta.setZero(p);
+			beta = previousBeta;
+			nonStationaryDraws++;
 		}
     }
 }
@@ -1869,7 +1873,9 @@ void HeteroGauss::GibbsHIGLM(Eigen::MatrixXd &betaDraws,
                              int propDfGamma, 
                              double IUpdatePrGamma,
 
-							 bool updateInclusion)
+							 bool updateInclusion,
+
+							 int &nonStationaryDraws)
 {
 
 	//
@@ -2002,6 +2008,11 @@ void HeteroGauss::GibbsHIGLM(Eigen::MatrixXd &betaDraws,
 	
 	//std::cout << "original gamma is " << std::endl << gamma << std::endl << std::endl;
 
+	Eigen::VectorXd previousRho(ARorder);
+	previousRho.setZero(ARorder);
+
+	Eigen::VectorXd previousDummy(100);
+
 	Eigen::VectorXd Irho(ARorder);
 	Irho(0) = 1;
 	for (int i = 1; i < ARorder; i++)
@@ -2084,7 +2095,7 @@ void HeteroGauss::GibbsHIGLM(Eigen::MatrixXd &betaDraws,
 			Xtilde.col(j) = temp.array() * invSigmas.array();
 		}
 
-	    UpdateLinRegVarSel(beta, Ibeta, ytilde, Xtilde, muBeta, SigmaBeta, PrInBeta, onTrialBeta, false, false);
+	    UpdateLinRegVarSel(beta, Ibeta, ytilde, Xtilde, muBeta, SigmaBeta, PrInBeta, onTrialBeta, false, false, nonStationaryDraws, previousDummy);
 	
 		
 		//------------------------------------------------------------
@@ -2120,7 +2131,8 @@ void HeteroGauss::GibbsHIGLM(Eigen::MatrixXd &betaDraws,
 				Utilde.col(j) = temp.array() * invSigmas.array();
 			}		
 
-    	    UpdateLinRegVarSel(rho, Irho, utilde, Utilde, muRho, SigmaRho, PrInRho, onTrialRho, true, forceStationarity);
+    	    UpdateLinRegVarSel(rho, Irho, utilde, Utilde, muRho, SigmaRho, PrInRho, onTrialRho, true, forceStationarity, nonStationaryDraws, previousRho);
+			previousRho = rho;
 
 			//std::cout << "rho is " << std::endl << rho << std::endl << std::endl;
 			//std::cout << "Irho is " << std::endl << Irho << std::endl << std::endl;

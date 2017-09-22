@@ -48,6 +48,7 @@ int main(int argc, char **argv)
     float           *h_Rho_Volumes, *h_Rho_Posterior, *h_IRho_Volumes;
 	float			*h_Contrast_Volumes, *h_Residuals, *h_Residual_Variances, *h_Statistical_Maps;        
 	float           *h_Design_Matrix, *h_Design_Matrix2;
+	float			*h_NonStationary_Draws;
 
 	//--------------
 
@@ -918,6 +919,8 @@ int main(int argc, char **argv)
     AllocateMemory(h_Contrasts, CONTRAST_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "CONTRASTS");
     AllocateMemory(h_ctxtxc_GLM, CONTRAST_SCALAR_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "CONTRAST_SCALARS");
 	AllocateMemory(h_Design_Matrix, DESIGN_MATRIX_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "TOTAL_DESIGN_MATRIX");
+
+	AllocateMemory(h_NonStationary_Draws, VOLUME_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "NONSTATIONARY_DRAWS");
 
 	AllocateMemory(h_Mask, VOLUME_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "MASK");
 
@@ -1977,12 +1980,13 @@ int main(int argc, char **argv)
 	int t = 0;
 	int j = 0;
 	int it = 0;
+	int nonStationaryDraws = 0;
 	int analyzedVoxels = 0;
 	float analyzedPortion = 0.0f;
 	float previousAnalyzedPortion = 0.0f;
 	int pp = 0;
 
-	#pragma omp parallel for shared (DATA_W,DATA_H,DATA_D,h_Mask,h_Data,h_Beta_Volumes,h_IBeta_Volumes,h_Gamma_Volumes,h_IGamma_Volumes,h_Rho_Volumes,h_IRho_Volumes,h_Beta_Posterior,h_Gamma_Posterior,h_Rho_Posterior,h_AccPr,analyzedVoxels,analyzedPortion,previousAnalyzedPortion, updateInclusion) private(voxel,t,j,it,pp) firstprivate(HeteroGaussObj,timeseries,betaDraws,IbetaDraws,gammaDraws,IgammaDraws,rhoDraws,IrhoDraws, accPrGammaDraws, beta, u, U, ytilde, Xtilde, rho, X, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, tempVector) 
+	#pragma omp parallel for shared (DATA_W,DATA_H,DATA_D,h_Mask,h_Data,h_Beta_Volumes,h_IBeta_Volumes,h_Gamma_Volumes,h_IGamma_Volumes,h_Rho_Volumes,h_IRho_Volumes,h_Beta_Posterior,h_Gamma_Posterior,h_Rho_Posterior,h_AccPr,analyzedVoxels,analyzedPortion,previousAnalyzedPortion, updateInclusion) private(voxel,t,j,it,pp) firstprivate(HeteroGaussObj,timeseries,betaDraws,IbetaDraws,gammaDraws,IgammaDraws,rhoDraws,IrhoDraws, accPrGammaDraws, beta, u, U, ytilde, Xtilde, rho, X, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, tempVector, nonStationaryDraws) 
 	for (voxel = 0; voxel < (DATA_W * DATA_H * DATA_D); voxel++)
 	{
 		if (h_Mask[voxel] == 1.0)
@@ -1993,9 +1997,14 @@ int main(int argc, char **argv)
 		    }
 
 		    // Run calculations for current voxel
-			HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion);
+			HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
 					
 			h_AccPr[voxel] = accPrGammaDraws.sum() / accPrGammaDraws.size();
+
+			if (forceStationarity)
+			{
+				h_NonStationary_Draws[voxel] = nonStationaryDraws;
+			}
 
 			if (SAVE_FULL_POSTERIOR)
 			{
@@ -2189,6 +2198,8 @@ int main(int argc, char **argv)
 	std::string IgammaString = "_Igamma";
     std::string rhoString = "_rho";
 	std::string IrhoString = "_Irho";
+	std::string nonStationaryString = "_nonstationary_draws";
+
 
 	std::string accpr = "_accpr";
 
@@ -2295,6 +2306,11 @@ int main(int argc, char **argv)
 		WriteNifti(outputNifti,&h_IRho_Volumes[i * DATA_W * DATA_H * DATA_D],temp2.c_str(),ADD_FILENAME,DONT_CHECK_EXISTING_FILE);
 	}
 
+	if (forceStationarity)
+	{
+		std::string temp1 = nonStationaryString;
+		WriteNifti(outputNifti,h_NonStationary_Draws,temp1.c_str(),ADD_FILENAME,DONT_CHECK_EXISTING_FILE);
+	}
 
 	if (SAVE_FULL_POSTERIOR)
 	{
