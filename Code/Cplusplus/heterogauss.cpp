@@ -1590,9 +1590,9 @@ void HeteroGauss::UpdateLinRegVarSel(Eigen::VectorXd &beta,
 	int p = I.size();
 	bool stationary = true;
 
-	if (AR && forceStationarity) // For AR lags, always start with AR(0) model.
+	if (AR && forceStationarity) 
 	{
-		I.setZero(p);
+		//I.setZero(p);
 	    stationary = false;
 		//preCompMat = [eye(p-1),zeros(p-1,1)]; // Used for checking stationarity below.
 		preCompMat.resize(p-1,p);
@@ -1636,6 +1636,7 @@ void HeteroGauss::UpdateLinRegVarSel(Eigen::VectorXd &beta,
 	{
 		int i = onTrialIndex(j);
     
+		/*
 		// Propose a change in I
     	if (AR)
 		{
@@ -1652,6 +1653,10 @@ void HeteroGauss::UpdateLinRegVarSel(Eigen::VectorXd &beta,
 		{
         	I(i) = 1.0 - I(i);    // Propose a change of I in the i:th position (in->out or out->in)
 		}
+		*/
+
+		I(i) = 1.0 - I(i);    // Propose a change of I in the i:th position (in->out or out->in)
+
 	    pI = (int)I.sum();
     
 	    if (pI == 0) // No covariates in the current model
