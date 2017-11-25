@@ -24,15 +24,16 @@ int main(int argc, char **argv)
     
     float           *h_Data, *h_Mask; 
   
-    float           *h_X_GLM, *h_xtxxt_GLM, *h_X_GLM_Confounds, *h_Contrasts, *h_ctxtxc_GLM, *h_Highres_Regressors, *h_LowpassFiltered_Regressors, *h_Motion_Parameters, *h_Motion_Deriv_Parameters;
+    float           *h_X_GLM, *h_xtxxt_GLM, *h_X_GLM_Confounds, *h_Contrasts, *h_ctxtxc_GLM, *h_Highres_Regressors, *h_LowpassFiltered_Regressors, *h_Motion_Parameters, *h_Motion_Deriv_Parameters, *h_Physio_Parameters;
                   
     size_t          DATA_W, DATA_H, DATA_D, DATA_T, NUMBER_OF_RUNS;  
 	size_t*			DATA_T_PER_RUN;             
     float           VOXEL_SIZE_X, VOXEL_SIZE_Y, VOXEL_SIZE_Z, TR;
 
-	size_t          NUMBER_OF_GLM_REGRESSORS, NUMBER_OF_TOTAL_GLM_REGRESSORS;
+	size_t          NUMBER_OF_GLM_REGRESSORS, NUMBER_OF_TOTAL_GLM_REGRESSORS, NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO;
     size_t          NUMBER_OF_DETRENDING_REGRESSORS = 4;
     size_t          NUMBER_OF_MOTION_REGRESSORS = 6;	
+	size_t			NUMBER_OF_PHYSIO_REGRESSORS = 32;
 
 	int				NUMBER_OF_EVENTS;
 	size_t			HIGHRES_FACTOR = 100;
@@ -109,6 +110,7 @@ int main(int argc, char **argv)
 	bool			MASK = false;
 	int             USE_TEMPORAL_DERIVATIVES = 0;
 
+	bool REGRESS_PHYSIO = false;
 	bool REGRESS_GLOBALMEAN = false;
 	bool FOUND_DESIGN = false;
 	bool FOUND_CONTRASTS = false;
@@ -143,6 +145,7 @@ int main(int argc, char **argv)
 	const char*		CONTRASTS_FILE;
 	const char*		MOTION_PARAMETERS_FILE;
 	const char*		MOTION_DERIV_PARAMETERS_FILE;
+	const char*		PHYSIO_PARAMETERS_FILE;
 	const char*		outputFilename;
 
 	const char*		GAMMA_REGRESSORS_NAME;       
@@ -180,6 +183,7 @@ int main(int argc, char **argv)
         printf(" -regressmotion             Provide file with motion regressors to use in design matrix (default no) \n");
         printf(" -regressmotionderiv        Provide file with derivative of motion regressors to use in design matrix (default no) \n");
         printf(" -regressglobalmean         Include global mean in design matrix (default no) \n\n");
+        printf(" -regressphysio             Provide file with nifti file names to include slice dependent physiological covariates in design matrix (default no) \n\n");
 
         printf(" -arorder                   Order of auto regressive noise model in each voxel (default 4)\n");
         printf(" -forcestationarity         Force stationary AR process (default false)\n");
@@ -350,12 +354,24 @@ int main(int argc, char **argv)
             REGRESS_MOTION_DERIV = true;
             i += 2;
         }
-
         else if (strcmp(input,"-regressglobalmean") == 0)
         {
             REGRESS_GLOBALMEAN = 1;
             i += 1;
         }
+        else if (strcmp(input,"-regressphysio") == 0)
+        {
+			if ( (i+1) >= argc  )
+			{
+			    printf("Unable to read value after -regressphysio!\n");
+                return EXIT_FAILURE;
+			}
+
+            PHYSIO_PARAMETERS_FILE = argv[i+1];
+            REGRESS_PHYSIO = true;
+            i += 2;
+        }
+
 
 
 
@@ -848,7 +864,10 @@ int main(int argc, char **argv)
 	CONTRAST_SCALAR_SIZE = NUMBER_OF_CONTRASTS * sizeof(float);
 	STATISTICAL_MAPS_SIZE = DATA_W * DATA_H * DATA_D * NUMBER_OF_CONTRASTS * sizeof(float);
 
-	NUMBER_OF_TOTAL_GLM_REGRESSORS = NUMBER_OF_GLM_REGRESSORS*(USE_TEMPORAL_DERIVATIVES+1) + NUMBER_OF_DETRENDING_REGRESSORS*NUMBER_OF_RUNS + REGRESS_GLOBALMEAN + NUMBER_OF_MOTION_REGRESSORS * REGRESS_MOTION + NUMBER_OF_MOTION_REGRESSORS * REGRESS_MOTION_DERIV;
+	NUMBER_OF_TOTAL_GLM_REGRESSORS = NUMBER_OF_GLM_REGRESSORS*(USE_TEMPORAL_DERIVATIVES+1) + NUMBER_OF_DETRENDING_REGRESSORS*NUMBER_OF_RUNS + REGRESS_GLOBALMEAN + NUMBER_OF_MOTION_REGRESSORS * REGRESS_MOTION + NUMBER_OF_MOTION_REGRESSORS * REGRESS_MOTION_DERIV + NUMBER_OF_PHYSIO_REGRESSORS * REGRESS_PHYSIO;
+
+	NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO = NUMBER_OF_GLM_REGRESSORS*(USE_TEMPORAL_DERIVATIVES+1) + NUMBER_OF_DETRENDING_REGRESSORS*NUMBER_OF_RUNS + REGRESS_GLOBALMEAN + NUMBER_OF_MOTION_REGRESSORS * REGRESS_MOTION + NUMBER_OF_MOTION_REGRESSORS * REGRESS_MOTION_DERIV;
+
 	p = NUMBER_OF_TOTAL_GLM_REGRESSORS;
 	q = NUMBER_OF_TOTAL_GLM_REGRESSORS;
 
@@ -891,6 +910,8 @@ int main(int argc, char **argv)
     size_t RHO_DATA_SIZE = DATA_W * DATA_H * DATA_D * AR_ORDER * sizeof(float);
     size_t RESIDUALS_DATA_SIZE = DATA_W * DATA_H * DATA_D * DATA_T * sizeof(float);
     size_t MOTION_PARAMETERS_SIZE = NUMBER_OF_MOTION_REGRESSORS * DATA_T * sizeof(float);
+
+	size_t PHYSIO_PARAMETERS_SIZE = NUMBER_OF_PHYSIO_REGRESSORS * DATA_D * DATA_T * sizeof(float); // Slice dependent regressors, read from nifti files
    
     size_t BETA_FULL_DATA_SIZE = DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS * NUMBER_OF_TOTAL_GLM_REGRESSORS * sizeof(float);
     size_t RHO_FULL_DATA_SIZE = DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS * AR_ORDER * sizeof(float);
@@ -931,6 +952,10 @@ int main(int argc, char **argv)
 	if (REGRESS_MOTION_DERIV)
 	{
 		AllocateMemory(h_Motion_Deriv_Parameters, MOTION_PARAMETERS_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "MOTION_DERIV_PARAMETERS");       
+	}
+	if (REGRESS_PHYSIO)
+	{
+		AllocateMemory(h_Physio_Parameters, PHYSIO_PARAMETERS_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "PHYSIO_PARAMETERS");
 	}
 
     AllocateMemory(h_PPM_Volumes, PPM_DATA_SIZE, allMemoryPointers, numberOfMemoryPointers, allNiftiImages, numberOfNiftiImages, allocatedHostMemory, "PPM_VOLUMES");
@@ -1395,7 +1420,73 @@ int main(int argc, char **argv)
 		}
 	}
 
+	//------------------------------------------
+	// Read physio parameters
+	//------------------------------------------
 
+	if (REGRESS_PHYSIO)
+	{
+	    // Open file containing name of nifti files
+		std::ifstream physioparameters;
+	    physioparameters.open(PHYSIO_PARAMETERS_FILE);  
+
+	    if ( physioparameters.good() )
+	    {
+			// Each line in the text file is a nifti file with DATA_D slices, and one pixel
+			for (int physioFile = 0; physioFile < NUMBER_OF_PHYSIO_REGRESSORS; physioFile++)
+			{
+		        std::string filename;
+		        physioparameters >> filename;
+
+				printf("Now reading physio file %s \n",filename.c_str());
+
+				nifti_image *physioData;
+				physioData = nifti_image_read(filename.c_str(),1);
+
+		        if (physioData == NULL)
+		        {
+		            printf("Unable to open the physio regressor nifti file %s . Aborting! \n",filename.c_str());
+		            FreeAllMemory(allMemoryPointers,numberOfMemoryPointers);
+		            FreeAllNiftiImages(allNiftiImages,numberOfNiftiImages);
+		            return EXIT_FAILURE;
+		        }
+
+				// Read the data
+				float *pointer = (float*)physioData->data;
+		    
+		        for (size_t i = 0; i < DATA_D * DATA_T; i++)
+		        {
+		            h_Physio_Parameters[i + physioFile * DATA_D * DATA_T] = (float)pointer[i];
+		        }
+			}
+			physioparameters.close();
+		}
+		else
+		{
+			physioparameters.close();
+	        printf("Could not open the physio parameters file %s !\n",PHYSIO_PARAMETERS_FILE);
+		}
+
+		// Demean regressors and normalize variance
+		
+		for (int physioFile = 0; physioFile < NUMBER_OF_PHYSIO_REGRESSORS; physioFile++)
+		{
+			for (int slice = 0; slice < DATA_D; slice++)
+			{
+				Eigen::VectorXd regressor(DATA_T);
+				for (size_t i = 0; i < DATA_T; i++)
+				{
+					regressor(i) = h_Physio_Parameters[slice + i * DATA_D + physioFile * DATA_D * DATA_T];
+				}
+				DemeanRegressor(regressor,DATA_T);
+				NormalizeVariance(regressor,DATA_T);
+				for (size_t i = 0; i < DATA_T; i++)
+				{
+					h_Physio_Parameters[slice + i * DATA_D + physioFile * DATA_D * DATA_T] = regressor(i);
+				}
+			}
+		}
+	}
 
     //------------------------------------------
 	// Read data
@@ -1414,38 +1505,38 @@ int main(int argc, char **argv)
 	
 		    if ( inputData->datatype == DT_SIGNED_SHORT )
 		    {
-		        short int *p = (short int*)inputData->data;
+		        short int *pointer = (short int*)inputData->data;
     			
 		        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T_PER_RUN[run]; i++)
     		    {
-    		        h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)p[i];
+    		        h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)pointer[i];
     		    }
 			}
 		    else if ( inputData->datatype == DT_UINT8 )
 		    {
-		        unsigned char *p = (unsigned char*)inputData->data;
+		        unsigned char *pointer = (unsigned char*)inputData->data;
 		    
 		        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T_PER_RUN[run]; i++)
 		        {
-		            h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)p[i];
+		            h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)pointer[i];
 		        }
 		    }
 		    else if ( inputData->datatype == DT_UINT16 )
 		    {
-		        unsigned short int *p = (unsigned short int*)inputData->data;
+		        unsigned short int *pointer = (unsigned short int*)inputData->data;
 		    
 		        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T_PER_RUN[run]; i++)
 		        {
-		            h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)p[i];
+		            h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)pointer[i];
 		        }
 		    }
 		    else if ( inputData->datatype == DT_FLOAT )
 		    {		
-		        float *p = (float*)inputData->data;
+		        float *pointer = (float*)inputData->data;
 		    
 		        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T_PER_RUN[run]; i++)
 		        {
-		            h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)p[i];
+		            h_Data[i + accumulatedTRs * DATA_W * DATA_H * DATA_D] = (float)pointer[i];
 		        }
 		    }
 		    else
@@ -1462,29 +1553,29 @@ int main(int argc, char **argv)
 	{
 	    if ( inputData->datatype == DT_SIGNED_SHORT )
 	    {
-	        short int *p = (short int*)inputData->data;
+	        short int *pointer = (short int*)inputData->data;
     		
 	        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T; i++)
     	    {
-    	        h_Data[i] = (float)p[i];
+    	        h_Data[i] = (float)pointer[i];
     	    }
 		}
 	    else if ( inputData->datatype == DT_UINT8 )
 	    {
-	        unsigned char *p = (unsigned char*)inputData->data;
+	        unsigned char *pointer = (unsigned char*)inputData->data;
 	    
 	        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T; i++)
 	        {
-	            h_Data[i] = (float)p[i];
+	            h_Data[i] = (float)pointer[i];
 	        }
 	    }
 	    else if ( inputData->datatype == DT_UINT16 )
 	    {
-	        unsigned short int *p = (unsigned short int*)inputData->data;
+	        unsigned short int *pointer = (unsigned short int*)inputData->data;
 	    
 	        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D * DATA_T; i++)
 	        {
-	            h_Data[i] = (float)p[i];
+	            h_Data[i] = (float)pointer[i];
 	        }
 	    }
 		// Correct data type, just copy the pointer
@@ -1529,29 +1620,29 @@ int main(int argc, char **argv)
 	{
 	    if ( inputMask->datatype == DT_SIGNED_SHORT )
 	    {
-	        short int *p = (short int*)inputMask->data;
+	        short int *pointer = (short int*)inputMask->data;
     
 	        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D; i++)
 	        {
-	            h_Mask[i] = (float)p[i];
+	            h_Mask[i] = (float)pointer[i];
 	        }
 	    }
 	    else if ( inputMask->datatype == DT_FLOAT )
 	    {
-	        float *p = (float*)inputMask->data;
+	        float *pointer = (float*)inputMask->data;
     
 	        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D; i++)
         	{
-	            h_Mask[i] = p[i];
+	            h_Mask[i] = pointer[i];
 	        }
 	    }
 	    else if ( inputMask->datatype == DT_UINT8 )
 	    {
-    	    unsigned char *p = (unsigned char*)inputMask->data;
+    	    unsigned char *pointer = (unsigned char*)inputMask->data;
     
 	        for (size_t i = 0; i < DATA_W * DATA_H * DATA_D; i++)
 	        {
-	            h_Mask[i] = (float)p[i];
+	            h_Mask[i] = (float)pointer[i];
 	        }
 	    }
 	    else
@@ -1578,11 +1669,13 @@ int main(int argc, char **argv)
 		printf("It took %f seconds to convert data to floats\n",(float)(endTime - startTime));
 	}
 
-	//------------------------
-	// Setup the total designmatrix
-    //------------------------
+	//--------------------------------------------------
+	// Setup the total designmatrix (without physio)
+    //--------------------------------------------------
 
 	Eigen::MatrixXd X = SetupGLMRegressorsFirstLevel(h_X_GLM, h_Motion_Parameters, h_Motion_Deriv_Parameters, NULL, RAW_REGRESSORS, RAW_DESIGNMATRIX, DATA_T_PER_RUN, REGRESS_MOTION, REGRESS_MOTION_DERIV, REGRESS_GLOBALMEAN, REGRESS_CONFOUNDS, NUMBER_OF_RUNS, USE_TEMPORAL_DERIVATIVES, NUMBER_OF_DETRENDING_REGRESSORS, NUMBER_OF_GLM_REGRESSORS, DATA_T, TR);
+
+	printf("Design matrix X is of size %i x %i \n",X.rows(),X.cols());
 
 	// Use all regressors for variance
 	Eigen::MatrixXd Z = X;
@@ -1593,7 +1686,7 @@ int main(int argc, char **argv)
 	{
 		// Last six regressors
 		int startRegressor = NUMBER_OF_GLM_REGRESSORS*(USE_TEMPORAL_DERIVATIVES+1) + NUMBER_OF_DETRENDING_REGRESSORS*NUMBER_OF_RUNS + NUMBER_OF_MOTION_REGRESSORS*REGRESS_MOTION;
-		for (int r = startRegressor; r < NUMBER_OF_TOTAL_GLM_REGRESSORS; r++)
+		for (int r = startRegressor; r < NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO; r++)
 		{
 			for (int i = 0; i < DATA_T; i++)
 			{
@@ -1618,7 +1711,7 @@ int main(int argc, char **argv)
 			MEAN_REGRESSOR = NUMBER_OF_GLM_REGRESSORS;
 		}
 			
-		for (int r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS; r++)
+		for (int r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO; r++)
 		{
 			if (r != MEAN_REGRESSOR)
 			{
@@ -1635,9 +1728,10 @@ int main(int argc, char **argv)
 		}
 	}
 	
+	
 	for (int i = 0; i < DATA_T; i++)
 	{
-		for (int r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS; r++)
+		for (int r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO; r++)
 		{
 			h_Design_Matrix[i + r * DATA_T] = X(i,r);
 		}
@@ -1664,7 +1758,7 @@ int main(int argc, char **argv)
 	    {
     	    for (size_t t = 0; t < DATA_T; t++)
 	        {
-	    	    for (size_t r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS; r++)
+	    	    for (size_t r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO; r++)
 		        {
             		designmatrix << std::setprecision(6) << std::fixed << (double)h_Design_Matrix[t + r * DATA_T] << "  ";
 				}
@@ -1678,6 +1772,33 @@ int main(int argc, char **argv)
 	        printf("Could not open the file for writing the total design matrix!\n");
 	    }
 		free(filenameWithExtension);
+
+		//--------------------------
+		// Physio, slice 1
+		//--------------------------
+
+		extension = "_physio_regressors_slice1.txt";
+		CreateFilename(filenameWithExtension, inputData, extension, CHANGE_OUTPUT_FILENAME, outputFilename);
+
+    	designmatrix.open(filenameWithExtension);    
+
+	    if ( designmatrix.good() )
+	    {
+	   	    for (size_t t = 0; t < DATA_T; t++)
+    	    {
+				for (size_t r = 0; r < NUMBER_OF_PHYSIO_REGRESSORS; r++)
+			    {
+					designmatrix << std::setprecision(6) << std::fixed << (double)h_Physio_Parameters[0 + t * DATA_D + r * DATA_D * DATA_T] << "  ";
+				}
+				designmatrix << std::endl;
+			}
+			designmatrix.close();
+		}
+	    else
+	    {
+			designmatrix.close();
+	        printf("Could not open the file for writing the physio regressors!\n");
+	    }
 	}
 
 	//------------------------------------------  
@@ -1976,190 +2097,221 @@ int main(int argc, char **argv)
 
 	// Run the HeteroGLM for each voxel in the mask
 
+	int pixel = 0;
 	int voxel = 0;
 	int t = 0;
 	int j = 0;
 	int it = 0;
+	int slice = 0;
 	int nonStationaryDraws = 0;
 	int analyzedVoxels = 0;
 	float analyzedPortion = 0.0f;
 	float previousAnalyzedPortion = 0.0f;
 	int pp = 0;
 
-	#pragma omp parallel for shared (DATA_W,DATA_H,DATA_D,h_Mask,h_Data,h_Beta_Volumes,h_IBeta_Volumes,h_Gamma_Volumes,h_IGamma_Volumes,h_Rho_Volumes,h_IRho_Volumes,h_Beta_Posterior,h_Gamma_Posterior,h_Rho_Posterior,h_AccPr,analyzedVoxels,analyzedPortion,previousAnalyzedPortion, updateInclusion) private(voxel,t,j,it,pp) firstprivate(HeteroGaussObj,timeseries,betaDraws,IbetaDraws,gammaDraws,IgammaDraws,rhoDraws,IrhoDraws, accPrGammaDraws, beta, u, U, ytilde, Xtilde, rho, X, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, tempVector, nonStationaryDraws) 
-	for (voxel = 0; voxel < (DATA_W * DATA_H * DATA_D); voxel++)
+	Eigen::MatrixXd X_nophysio = X;		
+	Eigen::MatrixXd X_withphysio(DATA_T, NUMBER_OF_TOTAL_GLM_REGRESSORS);
+	Eigen::MatrixXd physioCovariates(DATA_T, NUMBER_OF_PHYSIO_REGRESSORS);
+
+	#pragma omp parallel for shared (DATA_W,DATA_H,DATA_D,h_Mask,h_Data,h_Beta_Volumes,h_IBeta_Volumes,h_Gamma_Volumes,h_IGamma_Volumes,h_Rho_Volumes,h_IRho_Volumes,h_Beta_Posterior,h_Gamma_Posterior,h_Rho_Posterior,h_AccPr,analyzedVoxels,analyzedPortion,previousAnalyzedPortion, updateInclusion) private(pixel,voxel,t,j,it,pp,slice) firstprivate(HeteroGaussObj,timeseries,betaDraws,IbetaDraws,gammaDraws,IgammaDraws,rhoDraws,IrhoDraws, accPrGammaDraws, beta, u, U, ytilde, Xtilde, rho, X, X_nophysio, X_withphysio, Z, physioCovariates, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, tempVector, nonStationaryDraws) 
+	for (pixel = 0; pixel < (DATA_W * DATA_H); pixel++)
 	{
-		if (h_Mask[voxel] == 1.0)
+		for (slice = 0; slice < DATA_D; slice++)
 		{
-		    for (t = 0; t < DATA_T; t++)
-		    {
-		        timeseries(t) = (double)h_Data[voxel + t * DATA_W * DATA_H * DATA_D];
-		    }
+			voxel = pixel + slice * DATA_W * DATA_H;
 
-		    // Run calculations for current voxel
-			HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
+			if (h_Mask[voxel] == 1.0)
+			{
+			    for (t = 0; t < DATA_T; t++)
+			    {
+			        timeseries(t) = (double)h_Data[voxel + t * DATA_W * DATA_H * DATA_D];
+			    }
+
+				if (REGRESS_PHYSIO)
+				{
+					// Get physio vectors for current slice
+					for (int j = 0; j < NUMBER_OF_PHYSIO_REGRESSORS; j++)	
+					{
+						for (int t = 0; t < DATA_T; t++)	
+						{
+							physioCovariates(t,j) = h_Physio_Parameters[slice + t * DATA_D + j * DATA_D * DATA_T];
+						}
+
+						// Add physio parameters to X
+						X_withphysio << X_nophysio, physioCovariates;	
+					}
+
+				    // Run calculations for current voxel
+					HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X_withphysio, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
+				}
+				else
+				{
+					HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X_nophysio, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
+				}
+
 					
-			h_AccPr[voxel] = accPrGammaDraws.sum() / accPrGammaDraws.size();
+				h_AccPr[voxel] = accPrGammaDraws.sum() / accPrGammaDraws.size();
 
-			if (forceStationarity)
-			{
-				h_NonStationary_Draws[voxel] = nonStationaryDraws;
-			}
+				if (forceStationarity)
+				{
+					h_NonStationary_Draws[voxel] = nonStationaryDraws;
+				}
 
-			if (SAVE_FULL_POSTERIOR)
-			{
+				if (SAVE_FULL_POSTERIOR)
+				{
+					for (j = 0; j < p; j++)
+					{
+						tempVector = betaDraws.col(j);
+
+						for (it = 0; it < MCMC_ITERATIONS; it++)
+						{
+							// x, y, z, mcmc, regressor, 
+							h_Beta_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = tempVector(it);
+						}
+					}
+
+					for (j = 0; j < q; j++)
+					{
+						tempVector = gammaDraws.col(j);
+	
+						for (it = 0; it < MCMC_ITERATIONS; it++)
+						{
+							// x, y, z, mcmc, regressor, 
+							h_Gamma_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = tempVector(it);
+						}
+					}
+	
+					for (j = 0; j < AR_ORDER; j++)
+					{
+						tempVector = rhoDraws.col(j);
+	
+						for (it = 0; it < MCMC_ITERATIONS; it++)
+						{
+							// x, y, z, mcmc, regressor, 
+							h_Rho_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = tempVector(it);
+						}
+					}
+				}
+
+				// Save PPMs for original regressors
+				for (j = 0; j < NUMBER_OF_GLM_REGRESSORS; j++)
+				{
+					tempVector = betaDraws.col(j);
+	
+					pp = 0;
+					for (it = 0; it < MCMC_ITERATIONS; it++)
+					{
+						if (tempVector(it) > 0.0f)
+						{
+							pp++;
+						}
+					}
+	
+					h_PPM_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = (float)pp / (float)MCMC_ITERATIONS;
+				}
+
+				// Save posterior means
 				for (j = 0; j < p; j++)
 				{
 					tempVector = betaDraws.col(j);
-
-					for (it = 0; it < MCMC_ITERATIONS; it++)
-					{
-						// x, y, z, mcmc, regressor, 
-						h_Beta_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = tempVector(it);
-					}
-				}
-
+					h_Beta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
+	
+					tempVector = IbetaDraws.col(j);
+					h_IBeta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
+				}					
+	
+				// Save posterior means
 				for (j = 0; j < q; j++)
 				{
 					tempVector = gammaDraws.col(j);
-
-					for (it = 0; it < MCMC_ITERATIONS; it++)
-					{
-						// x, y, z, mcmc, regressor, 
-						h_Gamma_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = tempVector(it);
-					}
+					h_Gamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
+	
+					tempVector = IgammaDraws.col(j);
+					h_IGamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
 				}
-
+	
+				// Save posterior means
 				for (j = 0; j < AR_ORDER; j++)
 				{
 					tempVector = rhoDraws.col(j);
+					h_Rho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
+	
+					tempVector = IrhoDraws.col(j);
+					h_IRho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
+				}
 
-					for (it = 0; it < MCMC_ITERATIONS; it++)
+				#pragma omp critical
+				{				
+					double currentTime = GetWallTime();
+					analyzedVoxels++;
+					analyzedPortion = (float)analyzedVoxels/(float)numBrainVoxels * 100.0f;
+					float timeLeft = (float)(currentTime - startTime) / analyzedPortion * (100.0f - analyzedPortion);
+	
+					if ((analyzedPortion - previousAnalyzedPortion) > 1.0f)
 					{
-						// x, y, z, mcmc, regressor, 
-						h_Rho_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = tempVector(it);
+						printf("Analyzed %f %% of %i voxels in mask in %f minutes, expected time remaining %f minutes \n",analyzedPortion,numBrainVoxels,(float)(currentTime - startTime)/60.0f,timeLeft/60.0f);	
+						previousAnalyzedPortion = analyzedPortion;		
 					}
 				}
 			}
-
-			// Save PPMs for original regressors
-			for (j = 0; j < NUMBER_OF_GLM_REGRESSORS; j++)
+			else
 			{
-				tempVector = betaDraws.col(j);
+				h_AccPr[voxel] = 0.0;
 
-				pp = 0;
-				for (it = 0; it < MCMC_ITERATIONS; it++)
+				if (SAVE_FULL_POSTERIOR)
 				{
-					if (tempVector(it) > 0.0f)
+					for (j = 0; j < p; j++)
 					{
-						pp++;
+						for (it = 0; it < MCMC_ITERATIONS; it++)
+						{
+							// x, y, z, mcmc, regressor, 
+							h_Beta_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = 0.0;
+						}
 					}
+
+					for (j = 0; j < q; j++)
+					{
+						for (it = 0; it < MCMC_ITERATIONS; it++)
+						{
+							// x, y, z, mcmc, regressor, 
+							h_Gamma_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = 0.0;
+						}
+					}
+	
+					for (j = 0; j < AR_ORDER; j++)
+					{
+						for (it = 0; it < MCMC_ITERATIONS; it++)
+						{
+							// x, y, z, mcmc, regressor, 
+							h_Rho_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = 0.0;
+						}
+					}													
 				}
-
-				h_PPM_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = (float)pp / (float)MCMC_ITERATIONS;
-			}
-
-			// Save posterior means
-			for (j = 0; j < p; j++)
-			{
-				tempVector = betaDraws.col(j);
-				h_Beta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
-
-				tempVector = IbetaDraws.col(j);
-				h_IBeta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
-			}					
-
-			// Save posterior means
-			for (j = 0; j < q; j++)
-			{
-				tempVector = gammaDraws.col(j);
-				h_Gamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
-
-				tempVector = IgammaDraws.col(j);
-				h_IGamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
-			}
-
-			// Save posterior means
-			for (j = 0; j < AR_ORDER; j++)
-			{
-				tempVector = rhoDraws.col(j);
-				h_Rho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
-
-				tempVector = IrhoDraws.col(j);
-				h_IRho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = tempVector.sum() / tempVector.size();
-			}
-
-			#pragma omp critical
-			{				
-				double currentTime = GetWallTime();
-				analyzedVoxels++;
-				analyzedPortion = (float)analyzedVoxels/(float)numBrainVoxels * 100.0f;
-				float timeLeft = (float)(currentTime - startTime) / analyzedPortion * (100.0f - analyzedPortion);
-
-				if ((analyzedPortion - previousAnalyzedPortion) > 1.0f)
+					
+				// Save PPMs for original regressors
+				for (j = 0; j < NUMBER_OF_GLM_REGRESSORS; j++)
 				{
-					printf("Analyzed %f %% of %i voxels in mask in %f minutes, expected time remaining %f minutes \n",analyzedPortion,numBrainVoxels,(float)(currentTime - startTime)/60.0f,timeLeft/60.0f);	
-					previousAnalyzedPortion = analyzedPortion;		
+					h_PPM_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
 				}
-			}
-		}
-		else
-		{
-			h_AccPr[voxel] = 0.0;
-
-			if (SAVE_FULL_POSTERIOR)
-			{
+	
 				for (j = 0; j < p; j++)
 				{
-					for (it = 0; it < MCMC_ITERATIONS; it++)
-					{
-						// x, y, z, mcmc, regressor, 
-						h_Beta_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = 0.0;
-					}
+					h_Beta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
+					h_IBeta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
 				}
-
+	
 				for (j = 0; j < q; j++)
 				{
-					for (it = 0; it < MCMC_ITERATIONS; it++)
-					{
-						// x, y, z, mcmc, regressor, 
-						h_Gamma_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = 0.0;
-					}
+					h_Gamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
+					h_IGamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
 				}
-
+	
 				for (j = 0; j < AR_ORDER; j++)
 				{
-					for (it = 0; it < MCMC_ITERATIONS; it++)
-					{
-						// x, y, z, mcmc, regressor, 
-						h_Rho_Posterior[voxel + it * DATA_W * DATA_H * DATA_D + j * DATA_W * DATA_H * DATA_D * MCMC_ITERATIONS] = 0.0;
-					}
-				}													
+					h_Rho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
+					h_IRho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
+				}					
 			}
-					
-			// Save PPMs for original regressors
-			for (j = 0; j < NUMBER_OF_GLM_REGRESSORS; j++)
-			{
-				h_PPM_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-			}
-
-			for (j = 0; j < p; j++)
-			{
-				h_Beta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-				h_IBeta_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-			}
-
-			for (j = 0; j < q; j++)
-			{
-				h_Gamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-				h_IGamma_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-			}
-
-			for (j = 0; j < AR_ORDER; j++)
-			{
-				h_Rho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-				h_IRho_Volumes[voxel + j * DATA_W * DATA_H * DATA_D] = 0.0;
-			}					
 		}
 	} 
 	
