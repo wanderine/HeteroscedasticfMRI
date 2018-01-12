@@ -1773,32 +1773,35 @@ int main(int argc, char **argv)
 	    }
 		free(filenameWithExtension);
 
-		//--------------------------
-		// Physio, slice 1
-		//--------------------------
+		if (REGRESS_PHYSIO)
+		{
+			//--------------------------
+			// Physio, slice 1
+			//--------------------------
 
-		extension = "_physio_regressors_slice1.txt";
-		CreateFilename(filenameWithExtension, inputData, extension, CHANGE_OUTPUT_FILENAME, outputFilename);
+			extension = "_physio_regressors_slice1.txt";
+			CreateFilename(filenameWithExtension, inputData, extension, CHANGE_OUTPUT_FILENAME, outputFilename);
 
-    	designmatrix.open(filenameWithExtension);    
+    		designmatrix.open(filenameWithExtension);    
 
-	    if ( designmatrix.good() )
-	    {
-	   	    for (size_t t = 0; t < DATA_T; t++)
-    	    {
-				for (size_t r = 0; r < NUMBER_OF_PHYSIO_REGRESSORS; r++)
-			    {
-					designmatrix << std::setprecision(6) << std::fixed << (double)h_Physio_Parameters[0 + t * DATA_D + r * DATA_D * DATA_T] << "  ";
+		    if ( designmatrix.good() )
+		    {
+		   	    for (size_t t = 0; t < DATA_T; t++)
+    		    {
+					for (size_t r = 0; r < NUMBER_OF_PHYSIO_REGRESSORS; r++)
+				    {
+						designmatrix << std::setprecision(6) << std::fixed << (double)h_Physio_Parameters[0 + t * DATA_D + r * DATA_D * DATA_T] << "  ";
+					}
+					designmatrix << std::endl;
 				}
-				designmatrix << std::endl;
+				designmatrix.close();
 			}
-			designmatrix.close();
+		    else
+		    {
+				designmatrix.close();
+		        printf("Could not open the file for writing the physio regressors!\n");
+		    }
 		}
-	    else
-	    {
-			designmatrix.close();
-	        printf("Could not open the file for writing the physio regressors!\n");
-	    }
 	}
 
 	//------------------------------------------  
@@ -2110,10 +2113,12 @@ int main(int argc, char **argv)
 	int pp = 0;
 
 	Eigen::MatrixXd X_nophysio = X;		
+	Eigen::MatrixXd Z_nophysio = Z;		
 	Eigen::MatrixXd X_withphysio(DATA_T, NUMBER_OF_TOTAL_GLM_REGRESSORS);
+	Eigen::MatrixXd Z_withphysio(DATA_T, NUMBER_OF_TOTAL_GLM_REGRESSORS);
 	Eigen::MatrixXd physioCovariates(DATA_T, NUMBER_OF_PHYSIO_REGRESSORS);
 
-	#pragma omp parallel for shared (DATA_W,DATA_H,DATA_D,h_Mask,h_Data,h_Beta_Volumes,h_IBeta_Volumes,h_Gamma_Volumes,h_IGamma_Volumes,h_Rho_Volumes,h_IRho_Volumes,h_Beta_Posterior,h_Gamma_Posterior,h_Rho_Posterior,h_AccPr,analyzedVoxels,analyzedPortion,previousAnalyzedPortion, updateInclusion) private(pixel,voxel,t,j,it,pp,slice) firstprivate(HeteroGaussObj,timeseries,betaDraws,IbetaDraws,gammaDraws,IgammaDraws,rhoDraws,IrhoDraws, accPrGammaDraws, beta, u, U, ytilde, Xtilde, rho, X, X_nophysio, X_withphysio, Z, physioCovariates, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, tempVector, nonStationaryDraws) 
+	#pragma omp parallel for shared (DATA_W,DATA_H,DATA_D,h_Mask,h_Data,h_Beta_Volumes,h_IBeta_Volumes,h_Gamma_Volumes,h_IGamma_Volumes,h_Rho_Volumes,h_IRho_Volumes,h_Beta_Posterior,h_Gamma_Posterior,h_Rho_Posterior,h_AccPr,analyzedVoxels,analyzedPortion,previousAnalyzedPortion, updateInclusion) private(pixel,voxel,t,j,it,pp,slice) firstprivate(HeteroGaussObj,timeseries,betaDraws,IbetaDraws,gammaDraws,IgammaDraws,rhoDraws,IrhoDraws, accPrGammaDraws, beta, u, U, ytilde, Xtilde, rho, X, X_nophysio, X_withphysio, Z, Z_nophysio, Z_withphysio, physioCovariates, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, tempVector, nonStationaryDraws) 
 	for (pixel = 0; pixel < (DATA_W * DATA_H); pixel++)
 	{
 		for (slice = 0; slice < DATA_D; slice++)
@@ -2137,16 +2142,17 @@ int main(int argc, char **argv)
 							physioCovariates(t,j) = h_Physio_Parameters[slice + t * DATA_D + j * DATA_D * DATA_T];
 						}
 
-						// Add physio parameters to X
+						// Add physio parameters to X and Z
 						X_withphysio << X_nophysio, physioCovariates;	
+						Z_withphysio << Z_nophysio, physioCovariates;	
 					}
 
 				    // Run calculations for current voxel
-					HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X_withphysio, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
+					HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X_withphysio, Z_withphysio, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
 				}
 				else
 				{
-					HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X_nophysio, Z, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
+					HeteroGaussObj.GibbsHIGLM(betaDraws,IbetaDraws,gammaDraws,IgammaDraws, rhoDraws, IrhoDraws, accPrGammaDraws,  beta, u, U,  ytilde, Xtilde,  rho, timeseries, X_nophysio, Z_nophysio, AR_ORDER, forceStationarity, muBeta, muGamma, tauBeta, tauGamma, tauRho, iota, r, PrInBeta, PrInGamma, PrInRho, onTrialBeta, onTrialGamma, onTrialRho, MCMC_ITERATIONS, prcBurnin, nStepsGamma, hessMethodGamma, linkType, propDfGamma, IUpdatePrGamma, updateInclusion, nonStationaryDraws);
 				}
 
 					
