@@ -1881,7 +1881,7 @@ int main(int argc, char **argv)
 	    {
     	    for (size_t t = 0; t < DATA_T; t++)
 	        {
-	    	    for (size_t r = 0; r < q; r++)
+	    	    for (size_t r = 0; r < NUMBER_OF_TOTAL_GLM_REGRESSORS_WITHOUT_PHYSIO; r++)
 		        {
             		designmatrix << std::setprecision(6) << std::fixed << (double)Z(t,r) << "  ";
 				}
